@@ -5,9 +5,6 @@ __pycache__/
 # Log files
 *.log
 
-# Demo folder and contents
-/demo/
-
 # Vim swap files and backups
 *.swp
 *.swo
