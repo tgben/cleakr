@@ -41,6 +41,9 @@ cleakr.nvim/
 ├── .gitignore
 └── README.md                # This readme file
 ```
+## Demo
+
+![Demo](demo/demo.gif)
 
 ## How It Works
 
