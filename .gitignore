@@ -1,0 +1,21 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Log files
+*.log
+
+# Demo folder and contents
+/demo/
+
+# Vim swap files and backups
+*.swp
+*.swo
+*.bak
+
+# Mac system files
+.DS_Store
+
+# Python virtual environments
+venv/
+.env/
