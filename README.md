@@ -1,6 +1,6 @@
 # Cleakr.nvim
 
-Cleakr.nvim "c-leaker" is a Neovim plugin that uses AI to analyze C source files for memory-related issues using clang-tidy and provides inline virtual text warnings of concise summaries.
+Cleakr.nvim "c-leaker" is a Neovim plugin that uses AI to analyze C source files for memory-related issues using clang-tidy and provides inline virtual text warnings of concise issue summaries and recommendations.
 
 ## Features
 
@@ -51,7 +51,7 @@ cleakr.nvim/
 2. `cleakr_analysis` runs `clang-tidy` on the file and parses the output for memory-related warnings.
 3. The clang-tidy notes are grouped and formatted to provide context to the model.
 4. Variable names are extracted from the clang-tidy messages to improve the prompt.
-5. The script sends a concise prompt to the OpenAI API (GPT-4o-mini model) to get a short summary including variable names, severity, and leak category.
+5. The script sends a concise prompt to the OpenAI API (GPT-4o-mini model) to get a short summary (including variable names, severity, and leak category) and recommendations on how to fix it.
 6. The plugin receives the diagnostics in JSON and displays the messages as virtual text in the buffer.
 
 ## Logging and Debugging
