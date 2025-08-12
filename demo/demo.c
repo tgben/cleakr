@@ -3,7 +3,6 @@
 
 void foo() {
   char *bad = malloc(2048);
-  free(bad);
 }
 
 int main() {

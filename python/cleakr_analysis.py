@@ -110,11 +110,10 @@ def summarize_leak_with_llm(leak):
     return leak["raw_message"][:80]
 
   prompt = (
-    "You are a helpful assistant that summarizes C memory leak warnings.\n"
+    "You are a helpful assistant that summarizes C memory leak warnings and gives recommendations on how to update the code to fix the memory leaks.\n"
     f"Variable involved: {leak['var_name']}\n"
     f"Warning details:\n{leak['raw_message']}\n"
-    "Provide a concise message (max 80 chars) including variable name, "
-    "severity, and leak category."
+    "Provide a concise summary and recommendation on how to fix the leak (max 60 chars) including variable name, severity, and leak category. Respond in plain text (no markdown formatting)."
   )
 
   try:
