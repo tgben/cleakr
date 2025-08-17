@@ -1,131 +1,49 @@
 ---@diagnostic disable: undefined-global
-local api = vim.api
 
 local M = {}
 
-local ns = api.nvim_create_namespace("cleakr_ns")
+-- Module-level constants and state
+local NAMESPACE = vim.api.nvim_create_namespace("cleakr_ns")
+local PYTHON_PATH = "/usr/bin/python3"
+local SCRIPT_PATH = "/home/tgben/t/cleakr/python/cleakr_analysis.py"
+local WINDOW_WIDTH_RATIO = 0.6
+local WINDOW_HEIGHT_RATIO = 0.6
+
 local summary_win_id = nil
 local summary_buf_id = nil
 
+-- Clear virtual text diagnostics from buffer
 local function clear_diagnostics(bufnr)
-  api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
+  vim.api.nvim_buf_clear_namespace(bufnr, NAMESPACE, 0, -1)
 end
 
+-- Display virtual text and store leak data in buffer
 local function show_virtual_text(bufnr, diagnostics)
   clear_diagnostics(bufnr)
-  
-  -- Store leak data in buffer-local variable
-  api.nvim_buf_set_var(bufnr, "cleakr_leak_data", diagnostics)
-  
+  vim.api.nvim_buf_set_var(bufnr, "cleakr_leak_data", diagnostics)
+
   for _, diag in ipairs(diagnostics) do
-    local line = diag.line
     local text = diag.fix or ""
-    api.nvim_buf_set_virtual_text(bufnr, ns, line, { { text, "WarningMsg" } }, {})
+    vim.api.nvim_buf_set_virtual_text(
+      bufnr,
+      NAMESPACE,
+      diag.line,
+      { { text, "WarningMsg" } },
+      {}
+    )
   end
 end
 
-function M.run_analysis(file_path, bufnr)
-  -- Adjust if necessary
-  local python_path = "/usr/bin/python3"
-  local script_path = "/home/tgben/t/cleakr/python/cleakr_analysis.py"
+-- Format leak data into display lines
+local function format_leak_data(leak_data)
+  local lines = {
+    "CLEAKR LEAK SUMMARIES",
+    "=====================",
+    "",
+    "Press 'q' or ':CleakrSummary' to close this window",
+    ""
+  }
 
-  local stdout, stderr = "", ""
-
-  local stdout_pipe = vim.loop.new_pipe(false)
-  local stderr_pipe = vim.loop.new_pipe(false)
-
-  local handle
-  handle = vim.loop.spawn(python_path, {
-    args = { script_path, file_path },
-    stdio = { nil, stdout_pipe, stderr_pipe },
-  }, function(code)
-    stdout_pipe:close()
-    stderr_pipe:close()
-    handle:close()
-
-    if code ~= 0 then
-      vim.schedule(function()
-        vim.notify(
-          string.format("cleakr_analysis.py exited with code %d\nstderr: %s", code, stderr),
-          vim.log.levels.ERROR
-        )
-      end)
-      return
-    end
-
-    vim.schedule(function()
-      local ok, diagnostics = pcall(vim.fn.json_decode, stdout)
-      if not ok then
-        vim.notify("cleakr: failed to decode JSON from analysis script output", vim.log.levels.ERROR)
-        vim.notify("Raw output: " .. stdout, vim.log.levels.ERROR)
-        return
-      end
-      show_virtual_text(bufnr, diagnostics)
-    end)
-  end)
-
-  stdout_pipe:read_start(function(err, data)
-    if err then
-      vim.schedule(function()
-        vim.notify("cleakr: error reading stdout: " .. err, vim.log.levels.ERROR)
-      end)
-      return
-    end
-    if data then
-      stdout = stdout .. data
-    end
-  end)
-
-  stderr_pipe:read_start(function(err, data)
-    if err then
-      vim.schedule(function()
-        vim.notify("cleakr: error reading stderr: " .. err, vim.log.levels.ERROR)
-      end)
-      return
-    end
-    if data then
-      stderr = stderr .. data
-    end
-  end)
-end
-
-function M.clear_diagnostics(bufnr)
-  clear_diagnostics(bufnr)
-end
-
-function M.show_summary()
-  -- Check if summary window is already open and close it
-  if summary_win_id and api.nvim_win_is_valid(summary_win_id) then
-    api.nvim_win_close(summary_win_id, true)
-    summary_win_id = nil
-    return
-  end
-  
-  local current_bufnr = api.nvim_get_current_buf()
-  
-  -- Get stored leak data
-  local ok, leak_data = pcall(api.nvim_buf_get_var, current_bufnr, "cleakr_leak_data")
-  if not ok or not leak_data or #leak_data == 0 then
-    vim.notify("No leak summaries available for current buffer", vim.log.levels.INFO)
-    return
-  end
-  
-  -- Reuse existing buffer or create new one
-  local summary_bufnr
-  if summary_buf_id and api.nvim_buf_is_valid(summary_buf_id) then
-    summary_bufnr = summary_buf_id
-  else
-    summary_bufnr = api.nvim_create_buf(false, true)
-    summary_buf_id = summary_bufnr
-    api.nvim_buf_set_name(summary_bufnr, "Cleakr Leak Summaries")
-  end
-  
-  -- Format the leak data
-  local lines = {}
-  table.insert(lines, "CLEAKR LEAK SUMMARIES")
-  table.insert(lines, "=====================")
-  table.insert(lines, "")
-  
   for i, leak in ipairs(leak_data) do
     table.insert(lines, string.format("Leak #%d", i))
     table.insert(lines, string.format("File: %s", leak.filename))
@@ -134,20 +52,31 @@ function M.show_summary()
     table.insert(lines, string.format("Fix: %s", leak.fix or "No fix"))
     table.insert(lines, "")
   end
-  
-  -- Set buffer content
-  api.nvim_buf_set_option(summary_bufnr, "modifiable", true)
-  api.nvim_buf_set_lines(summary_bufnr, 0, -1, false, lines)
-  api.nvim_buf_set_option(summary_bufnr, "modifiable", false)
-  api.nvim_buf_set_option(summary_bufnr, "buftype", "nofile")
-  
-  -- Create floating window
-  local width = math.floor(vim.o.columns * 0.6)
-  local height = math.floor(vim.o.lines * 0.6)
+
+  return lines
+end
+
+-- Get or create summary buffer
+local function get_summary_buffer()
+  if summary_buf_id and vim.api.nvim_buf_is_valid(summary_buf_id) then
+    return summary_buf_id
+  end
+
+  local bufnr = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_name(bufnr, "Cleakr Leak Summaries")
+  summary_buf_id = bufnr
+
+  return bufnr
+end
+
+-- Create floating window configuration
+local function create_window_config()
+  local width = math.floor(vim.o.columns * WINDOW_WIDTH_RATIO)
+  local height = math.floor(vim.o.lines * WINDOW_HEIGHT_RATIO)
   local row = math.floor((vim.o.lines - height) / 2)
   local col = math.floor((vim.o.columns - width) / 2)
-  
-  local win_opts = {
+
+  return {
     relative = "editor",
     width = width,
     height = height,
@@ -156,28 +85,133 @@ function M.show_summary()
     style = "minimal",
     border = "rounded"
   }
-  
-  summary_win_id = api.nvim_open_win(summary_bufnr, true, win_opts)
-  
-  -- Set up key mapping to close with 'q'
-  api.nvim_buf_set_keymap(summary_bufnr, "n", "q", "<cmd>lua require('cleakr').show_summary()<CR>", 
-    { noremap = true, silent = true })
 end
 
+-- Handle analysis completion
+local function handle_analysis_result(code, stdout, stderr, bufnr)
+  if code ~= 0 then
+    vim.schedule(function()
+      vim.notify(
+        string.format("cleakr_analysis.py exited with code %d\nstderr: %s", code, stderr),
+        vim.log.levels.ERROR
+      )
+    end)
+    return
+  end
+
+  vim.schedule(function()
+    local ok, diagnostics = pcall(vim.fn.json_decode, stdout)
+    if not ok then
+      vim.notify("cleakr: failed to decode JSON from analysis script output", vim.log.levels.ERROR)
+      vim.notify("Raw output: " .. stdout, vim.log.levels.ERROR)
+      return
+    end
+    show_virtual_text(bufnr, diagnostics)
+  end)
+end
+
+-- Set up pipe reading
+local function setup_pipe_reader(pipe, output_var, error_prefix)
+  pipe:read_start(function(err, data)
+    if err then
+      vim.schedule(function()
+        vim.notify(string.format("cleakr: error reading %s: %s", error_prefix, err), vim.log.levels.ERROR)
+      end)
+      return
+    end
+    if data then
+      output_var[1] = output_var[1] .. data
+    end
+  end)
+end
+
+-- Run clang analysis on file
+function M.run_analysis(file_path, bufnr)
+  local stdout = { "" }
+  local stderr = { "" }
+
+  local stdout_pipe = vim.loop.new_pipe(false)
+  local stderr_pipe = vim.loop.new_pipe(false)
+
+  local handle
+  handle = vim.loop.spawn(PYTHON_PATH, {
+    args = { SCRIPT_PATH, file_path },
+    stdio = { nil, stdout_pipe, stderr_pipe },
+  }, function(code)
+    stdout_pipe:close()
+    stderr_pipe:close()
+    handle:close()
+    handle_analysis_result(code, stdout[1], stderr[1], bufnr)
+  end)
+
+  setup_pipe_reader(stdout_pipe, stdout, "stdout")
+  setup_pipe_reader(stderr_pipe, stderr, "stderr")
+end
+
+-- Clear diagnostics for buffer
+function M.clear_diagnostics(bufnr)
+  clear_diagnostics(bufnr)
+end
+
+-- Toggle summary window display
+function M.show_summary()
+  -- Close window if already open
+  if summary_win_id and vim.api.nvim_win_is_valid(summary_win_id) then
+    vim.api.nvim_win_close(summary_win_id, true)
+    summary_win_id = nil
+    return
+  end
+
+  local current_bufnr = vim.api.nvim_get_current_buf()
+
+  -- Get stored leak data
+  local ok, leak_data = pcall(vim.api.nvim_buf_get_var, current_bufnr, "cleakr_leak_data")
+  if not ok or not leak_data or #leak_data == 0 then
+    vim.notify("No leak summaries available for current buffer", vim.log.levels.INFO)
+    return
+  end
+
+  -- Prepare buffer and content
+  local summary_bufnr = get_summary_buffer()
+  local lines = format_leak_data(leak_data)
+
+  -- Update buffer content
+  vim.api.nvim_buf_set_option(summary_bufnr, "modifiable", true)
+  vim.api.nvim_buf_set_lines(summary_bufnr, 0, -1, false, lines)
+  vim.api.nvim_buf_set_option(summary_bufnr, "modifiable", false)
+  vim.api.nvim_buf_set_option(summary_bufnr, "buftype", "nofile")
+
+  -- Create and display floating window
+  local win_config = create_window_config()
+  summary_win_id = vim.api.nvim_open_win(summary_bufnr, true, win_config)
+
+  -- Set up key mapping for closing
+  vim.api.nvim_buf_set_keymap(
+    summary_bufnr,
+    "n",
+    "q",
+    "<cmd>lua require('cleakr').show_summary()<CR>",
+    { noremap = true, silent = true }
+  )
+end
+
+-- Initialize plugin
 function M.setup()
-  api.nvim_create_autocmd("BufWritePost", {
+  -- Auto-analyze C files on save
+  vim.api.nvim_create_autocmd("BufWritePost", {
     pattern = "*.c",
     callback = function(args)
-      local bufnr = api.nvim_get_current_buf()
+      local bufnr = vim.api.nvim_get_current_buf()
       M.run_analysis(args.file, bufnr)
     end,
   })
 
-  api.nvim_create_autocmd("VimEnter", {
+  -- Auto-analyze C files on Neovim startup
+  vim.api.nvim_create_autocmd("VimEnter", {
     callback = function()
-      for _, bufnr in ipairs(api.nvim_list_bufs()) do
-        if api.nvim_buf_get_option(bufnr, "filetype") == "c" then
-          local file = api.nvim_buf_get_name(bufnr)
+      for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+        if vim.api.nvim_buf_get_option(bufnr, "filetype") == "c" then
+          local file = vim.api.nvim_buf_get_name(bufnr)
           if file ~= "" then
             M.run_analysis(file, bufnr)
           end
@@ -185,9 +219,9 @@ function M.setup()
       end
     end,
   })
-  
+
   -- Create user command
-  api.nvim_create_user_command("CleakrSummary", function()
+  vim.api.nvim_create_user_command("CleakrSummary", function()
     M.show_summary()
   end, { desc = "Show Cleakr leak summaries for current buffer" })
 end
