@@ -146,11 +146,6 @@ def main():
   logging.info(f"clang output:\n{clang_output.strip()}")
   leaks = extract_leaks(clang_output)
 
-  # if not leaks:
-  #   logging.info("No leaks found")
-  #   print("[]")
-  #   return
-
   logging.info(f"Leaks: {len(leaks)}")
   diagnostics = []
   for leak in leaks:
@@ -164,7 +159,7 @@ def main():
     })
   logging.info(f"Diagnostics: {json.dumps(diagnostics)}")
 
-  # Send back to neovim by printing to stdout
+  # Send diagnostics back to neovim by printing to stdout
   print(json.dumps(diagnostics))
 
 if __name__ == "__main__":
