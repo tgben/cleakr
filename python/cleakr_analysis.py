@@ -163,11 +163,7 @@ def summarize_leak_with_llm(leak):
   assert fix
   
   # Return just the fix part
-  return fix
-    
-  except Exception:
-    logging.exception("OpenAI API call failed")
-    return f"Leak: {leak['var_name']}; Rec: {leak['raw_message'][:max_chars]}"
+  return summary, fix
 
 
 # Clang-tidy runner
@@ -232,15 +228,15 @@ def main():
   logging.info(f"Leaks: {len(leaks)}")
   diagnostics = []
   for leak in leaks:
-    summary = summarize_leak_with_llm(leak)
+    summary, fix = summarize_leak_with_llm(leak)
     diagnostics.append({
       "filename": leak["filename"],
       "line": leak["lnum"],
       "col": leak["col"],
-      "message": summary,
-      "severity": 2,
+      "summary": summary,
+      "fix": fix,
     })
-  logging.info(f"Diagnostics: {json.dumps(diagnostics)}")
+  logging.info(f"Diagnostics: {json.dumps(diagnostics, indent=2)}")
 
   # Send diagnostics back to neovim by printing to stdout
   print(json.dumps(diagnostics))

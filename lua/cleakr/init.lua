@@ -11,9 +11,13 @@ end
 
 local function show_virtual_text(bufnr, diagnostics)
   clear_diagnostics(bufnr)
+  
+  -- Store leak data in buffer-local variable
+  api.nvim_buf_set_var(bufnr, "cleakr_leak_data", diagnostics)
+  
   for _, diag in ipairs(diagnostics) do
     local line = diag.line
-    local text = diag.message or ""
+    local text = diag.fix or ""
     api.nvim_buf_set_virtual_text(bufnr, ns, line, { { text, "WarningMsg" } }, {})
   end
 end
@@ -87,6 +91,44 @@ function M.clear_diagnostics(bufnr)
   clear_diagnostics(bufnr)
 end
 
+function M.show_summary()
+  local current_bufnr = api.nvim_get_current_buf()
+  
+  -- Get stored leak data
+  local ok, leak_data = pcall(api.nvim_buf_get_var, current_bufnr, "cleakr_leak_data")
+  if not ok or not leak_data or #leak_data == 0 then
+    vim.notify("No leak summaries available for current buffer", vim.log.levels.INFO)
+    return
+  end
+  
+  -- Create new buffer for summaries
+  local summary_bufnr = api.nvim_create_buf(false, true)
+  api.nvim_buf_set_name(summary_bufnr, "Cleakr Leak Summaries")
+  
+  -- Format the leak data
+  local lines = {}
+  table.insert(lines, "CLEAKR LEAK SUMMARIES")
+  table.insert(lines, "=====================")
+  table.insert(lines, "")
+  
+  for i, leak in ipairs(leak_data) do
+    table.insert(lines, string.format("Leak #%d", i))
+    table.insert(lines, string.format("File: %s", leak.filename))
+    table.insert(lines, string.format("Line: %d, Col: %d", leak.line + 1, leak.col + 1))
+    table.insert(lines, string.format("Summary: %s", leak.summary or "No summary"))
+    table.insert(lines, string.format("Fix: %s", leak.fix or "No fix"))
+    table.insert(lines, "")
+  end
+  
+  -- Set buffer content
+  api.nvim_buf_set_lines(summary_bufnr, 0, -1, false, lines)
+  api.nvim_buf_set_option(summary_bufnr, "modifiable", false)
+  api.nvim_buf_set_option(summary_bufnr, "buftype", "nofile")
+  
+  -- Display in current window
+  api.nvim_set_current_buf(summary_bufnr)
+end
+
 function M.setup()
   api.nvim_create_autocmd("BufWritePost", {
     pattern = "*.c",
@@ -108,6 +150,11 @@ function M.setup()
       end
     end,
   })
+  
+  -- Create user command
+  api.nvim_create_user_command("CleakrSummary", function()
+    M.show_summary()
+  end, { desc = "Show Cleakr leak summaries for current buffer" })
 end
 
 return M
