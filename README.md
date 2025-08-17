@@ -17,15 +17,30 @@ Cleakr.nvim "c-leaker" is a Neovim plugin that uses AI to analyze C source files
 
 ## Installation
 
+Git-it
+```bash
+git clone https://github.com/tgben/cleakr.git
+```
+
 Use your favorite plugin manager, e.g., with lazy.nvim:
 ```lua
 -- cleakr
 {
-  dir = "/Users/tgbenoit/t/cleakr.nvim",
+  dir = "/path/to/cleakr",
   config = function()
     require("cleakr").setup()
   end,
 },
+```
+
+Set your Open AI API key
+```bash
+export OPENAI_API_KEY="KEY"
+```
+
+Set `script_path` in `/cleakr/lua/cleakr/init.lua`
+```lua
+local script_path = "/path/to/cleakr/python/cleakr_analysis.py"
 ```
 
 ## Folder Structure

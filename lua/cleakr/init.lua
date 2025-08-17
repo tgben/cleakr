@@ -11,15 +11,16 @@ end
 local function show_virtual_text(bufnr, diagnostics)
   clear_diagnostics(bufnr)
   for _, diag in ipairs(diagnostics) do
-    local line = diag.lnum
+    local line = diag.line
     local text = diag.message or ""
     api.nvim_buf_set_virtual_text(bufnr, ns, line, { { text, "WarningMsg" } }, {})
   end
 end
 
 function M.run_analysis(file_path, bufnr)
-  local python_path = "/usr/bin/python3" -- Adjust if necessary
-  local script_path = "/Users/tgbenoit/t/cleakr.nvim/python/cleakr_analysis.py"
+  -- Adjust if necessary
+  local python_path = "/usr/bin/python3"
+  local script_path = "/home/tgben/t/cleakr/python/cleakr_analysis.py"
 
   local stdout, stderr = "", ""
 
