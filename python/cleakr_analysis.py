@@ -25,10 +25,20 @@ logging.info("OpenAI client initialized")
 
 # Extracts variable name from combined message block
 def extract_var_name(raw_message):
-  match = re.search(r"'([^']+)'", raw_message)
-  if match:
-    var_name = match.group(1)
-    return var_name
+  patterns = [
+    # Quoted variable name (from warning messages)
+    r"'([^']+)'",
+    # Variable declaration with memory allocation
+    r"\w+\s*\*?\s*(\w+)\s*=\s*(malloc|calloc|realloc)",
+    # General variable assignment
+    r"(\w+)\s*=\s*\w+",
+  ]
+  
+  for pattern in patterns:
+    match = re.search(pattern, raw_message)
+    if match:
+      return match.group(1)
+  
   return "unknown"
 
 # Extracts AST context for a variable at a specific line
@@ -88,7 +98,6 @@ def extract_leaks(clang_output, ast_output):
       file, line_num, col_num = current_location
       line_key = (file, line_num - 1)  # Use zero-based line number for consistency
       
-      # Skip if we already have a leak for this line
       if line_key in seen_lines:
         return
         
