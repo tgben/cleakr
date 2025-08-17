@@ -8,6 +8,7 @@ Cleakr.nvim "c-leaker" is a Neovim plugin that uses AI to analyze C source files
 - Extracts memory leak and related warnings from `clang-tidy` output.
 - Uses OpenAI's GPT to generate concise, informative summaries.
 - Displays warnings inline as clear virtual text in Neovim buffers, without cluttering your workflow.
+- Summary window: Use `:CleakrSummary` to view detailed leak summaries and fix recommendations in a floating popup window.
 
 ## Requirements
 
@@ -38,9 +39,9 @@ Set your Open AI API key
 export OPENAI_API_KEY="KEY"
 ```
 
-Set `script_path` in `/cleakr/lua/cleakr/init.lua`
+Set `SCRIPT_PATH` in `/cleakr/lua/cleakr/init.lua` (line 8)
 ```lua
-local script_path = "/path/to/cleakr/python/cleakr_analysis.py"
+local SCRIPT_PATH = "/path/to/cleakr/python/cleakr_analysis.py"
 ```
 
 ## Folder Structure
@@ -52,7 +53,10 @@ cleakr.nvim/
 │       └── init.lua         # Main Lua plugin code
 ├── python/
 │   └── cleakr_analysis.py   # Python script that runs clang-tidy and LLM API calls
-├── cleakr.log               # Log file generated at runtime
+├── demo/
+│   ├── demo.c               # Sample C file with memory leaks for testing
+│   └── ...
+├── log/                     # Log directory (git tracked, but log files ignored)
 ├── .gitignore
 └── README.md                # This readme file
 ```
@@ -68,8 +72,9 @@ cleakr.nvim/
 4. Variable names are extracted from the clang-tidy messages to improve the prompt.
 5. The script sends a concise prompt to the OpenAI API (GPT-4o-mini model) to get a short summary (including variable names, severity, and leak category) and recommendations on how to fix it.
 6. The plugin receives the diagnostics in JSON and displays the messages as virtual text in the buffer.
+7. Run `:CleakrSummary` to view detailed leak information in a floating popup window, or press `q` to close it.
 
 ## Logging and Debugging
 
-- Logs are written to `cleakr.log` in the current working directory.
+- Logs are written to `log/cleakr.log` in the plugin directory.
 - Use this file to troubleshoot clang-tidy output, OpenAI API responses, and plugin execution details.
