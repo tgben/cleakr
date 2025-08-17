@@ -4,6 +4,8 @@ local api = vim.api
 local M = {}
 
 local ns = api.nvim_create_namespace("cleakr_ns")
+local summary_win_id = nil
+local summary_buf_id = nil
 
 local function clear_diagnostics(bufnr)
   api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
@@ -92,6 +94,13 @@ function M.clear_diagnostics(bufnr)
 end
 
 function M.show_summary()
+  -- Check if summary window is already open and close it
+  if summary_win_id and api.nvim_win_is_valid(summary_win_id) then
+    api.nvim_win_close(summary_win_id, true)
+    summary_win_id = nil
+    return
+  end
+  
   local current_bufnr = api.nvim_get_current_buf()
   
   -- Get stored leak data
@@ -101,9 +110,15 @@ function M.show_summary()
     return
   end
   
-  -- Create new buffer for summaries
-  local summary_bufnr = api.nvim_create_buf(false, true)
-  api.nvim_buf_set_name(summary_bufnr, "Cleakr Leak Summaries")
+  -- Reuse existing buffer or create new one
+  local summary_bufnr
+  if summary_buf_id and api.nvim_buf_is_valid(summary_buf_id) then
+    summary_bufnr = summary_buf_id
+  else
+    summary_bufnr = api.nvim_create_buf(false, true)
+    summary_buf_id = summary_bufnr
+    api.nvim_buf_set_name(summary_bufnr, "Cleakr Leak Summaries")
+  end
   
   -- Format the leak data
   local lines = {}
@@ -121,12 +136,32 @@ function M.show_summary()
   end
   
   -- Set buffer content
+  api.nvim_buf_set_option(summary_bufnr, "modifiable", true)
   api.nvim_buf_set_lines(summary_bufnr, 0, -1, false, lines)
   api.nvim_buf_set_option(summary_bufnr, "modifiable", false)
   api.nvim_buf_set_option(summary_bufnr, "buftype", "nofile")
   
-  -- Display in current window
-  api.nvim_set_current_buf(summary_bufnr)
+  -- Create floating window
+  local width = math.floor(vim.o.columns * 0.6)
+  local height = math.floor(vim.o.lines * 0.6)
+  local row = math.floor((vim.o.lines - height) / 2)
+  local col = math.floor((vim.o.columns - width) / 2)
+  
+  local win_opts = {
+    relative = "editor",
+    width = width,
+    height = height,
+    row = row,
+    col = col,
+    style = "minimal",
+    border = "rounded"
+  }
+  
+  summary_win_id = api.nvim_open_win(summary_bufnr, true, win_opts)
+  
+  -- Set up key mapping to close with 'q'
+  api.nvim_buf_set_keymap(summary_bufnr, "n", "q", "<cmd>lua require('cleakr').show_summary()<CR>", 
+    { noremap = true, silent = true })
 end
 
 function M.setup()
