@@ -124,13 +124,14 @@ def extract_leaks(clang_output, ast_output):
 
 # LLM summarizer
 def summarize_leak_with_llm(leak):
-
+  max_chars = 60
   prompt = (
-    "You are a helpful assistant that summarizes C memory leak warnings and gives recommendations on how to update the code to fix the memory leaks.\n"
-    f"Variable involved: {leak['var_name']}\n"
-    f"Warning details:\n{leak['raw_message']}\n"
-    f"AST context: {leak.get('ast_context', 'No AST context')}\n"
-    "Provide a concise summary and recommendation on how to fix the leak (max 60 chars) including variable name, severity, and leak category. Respond in plain text (no markdown formatting)."
+    "Analyze this C memory leak and provide a fix recommendation.\n\n"
+    f"Variable: {leak['var_name']}\n"
+    f"Leak details: {leak['raw_message']}\n"
+    f"AST context: {leak.get('ast_context', 'No AST context')}\n\n"
+    f"Respond in this exact format: 'Leak: <variable-name>; Rec: <recommendation>.'\n"
+    f"Keep recommendation under {max_chars} chars. No warnings, severity, or categories."
   )
   model = "gpt-4o-mini"
   messages = [
@@ -153,7 +154,7 @@ def summarize_leak_with_llm(leak):
     return summary
   except Exception:
     logging.exception("OpenAI API call failed")
-    return leak["raw_message"][:60]
+    return leak["raw_message"][:max_chars]
 
 
 # Clang-tidy runner
