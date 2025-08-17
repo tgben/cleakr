@@ -126,11 +126,15 @@ def extract_leaks(clang_output, ast_output):
 def summarize_leak_with_llm(leak):
   max_chars = 60
   prompt = (
-    "Analyze this C memory leak and provide a fix recommendation.\n\n"
+    "Analyze this C memory leak and provide both a summary and fix recommendation.\n\n"
     f"Variable: {leak['var_name']}\n"
     f"Leak details: {leak['raw_message']}\n"
     f"AST context: {leak.get('ast_context', 'No AST context')}\n\n"
-    f"Respond in this exact format: 'Leak: <variable-name>; Rec: <recommendation>.'\n"
+    "Respond with valid JSON in this exact format:\n"
+    "{\n"
+    '  "summary": "<brief technical summary of the leak>",\n'
+    '  "fix": "Leak: <variable-name>; Rec: <recommendation>."\n'
+    "}\n\n"
     f"Keep recommendation under {max_chars} chars. No warnings, severity, or categories."
   )
   model = "gpt-4o-mini"
@@ -150,11 +154,21 @@ def summarize_leak_with_llm(leak):
       max_tokens=max_tokens,
       temperature=temperature
     )
-    summary = response.choices[0].message.content.strip()
-    return summary
+    response = response.choices[0].message.content.strip()
+    response_json = json.loads(response)
+
+    summary = response_json["summary"]
+    fix = response_json["fix"]
+
+    assert summary
+    assert fix
+    
+    # Return just the fix part
+    return fix
+    
   except Exception:
     logging.exception("OpenAI API call failed")
-    return leak["raw_message"][:max_chars]
+    return f"Leak: {leak['var_name']}; Rec: {leak['raw_message'][:max_chars]}"
 
 
 # Clang-tidy runner
