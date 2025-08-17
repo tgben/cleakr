@@ -73,6 +73,7 @@ def extract_ast_context(ast_output, line_num, var_name):
 def extract_leaks(clang_output, ast_output):
     lines = clang_output.splitlines()
     leaks = []
+    seen_lines = set()  # Track line numbers to avoid duplicates
     current_block = []
     current_location = None
     
@@ -85,6 +86,13 @@ def extract_leaks(clang_output, ast_output):
       if not current_block or not current_location:
         return
       file, line_num, col_num = current_location
+      line_key = (file, line_num - 1)  # Use zero-based line number for consistency
+      
+      # Skip if we already have a leak for this line
+      if line_key in seen_lines:
+        return
+        
+      seen_lines.add(line_key)
       combined_msg = "\n".join(current_block)
       var_name = extract_var_name(combined_msg)
       ast_context = extract_ast_context(ast_output, line_num, var_name)
@@ -122,28 +130,41 @@ def extract_leaks(clang_output, ast_output):
     
     return leaks
 
-# LLM summarizer
-def summarize_leak_with_llm(leak):
+# Batch LLM summarizer for all leaks
+def summarize_all_leaks_with_llm(leaks):
+  if not leaks:
+    return []
+    
   max_chars = 60
+  
+  # Build prompt with all leaks
+  leak_descriptions = []
+  for i, leak in enumerate(leaks, 1):
+    leak_desc = (
+      f"Leak #{i}:\n"
+      f"  Variable: {leak['var_name']}\n"
+      f"  Details: {leak['raw_message']}\n"
+      f"  AST context: {leak.get('ast_context', 'No AST context')}\n"
+    )
+    leak_descriptions.append(leak_desc)
+  
   prompt = (
-    "Analyze this C memory leak and provide both a summary and fix recommendation.\n\n"
-    f"Variable: {leak['var_name']}\n"
-    f"Leak details: {leak['raw_message']}\n"
-    f"AST context: {leak.get('ast_context', 'No AST context')}\n\n"
-    "Respond with valid JSON in this exact format:\n"
-    "{\n"
-    '  "summary": "<brief technical summary of the leak>",\n'
-    '  "fix": "Leak: <variable-name>; Rec: <recommendation>."\n'
-    "}\n\n"
-    f"Keep recommendation under {max_chars} chars. No warnings, severity, or categories."
+    "Analyze these C memory leaks and provide summaries and fix recommendations for each.\n\n"
+    + "\n".join(leak_descriptions) + "\n\n"
+    'Respond with ONLY valid JSON array, no formatting or code blocks: [{"summary": "<brief technical summary>", "fix": "Leak: <variable-name>; Rec: <recommendation>."}]\n\n'
+    f"Keep each recommendation under {max_chars} chars, unless you need more for valid json formatting. No warnings, severity, or categories. "
+    f"Return exactly {len(leaks)} objects in the array, one for each leak in order. "
+    "DO NOT wrap in markdown code blocks."
   )
+  
   model = "gpt-4o-mini"
   messages = [
     {"role": "user",
      "content": prompt
     }
   ]
-  max_tokens = 40
+  max_tokens_per_leak = 100  # Increased for JSON overhead and batching
+  max_tokens = max(200, max_tokens_per_leak * len(leaks))  # Minimum 200 tokens
   temperature = 0.3
   logging.info(prompt)
 
@@ -156,14 +177,18 @@ def summarize_leak_with_llm(leak):
   response = response.choices[0].message.content.strip()
   response_json = json.loads(response)
 
-  summary = response_json["summary"]
-  fix = response_json["fix"]
-
-  assert summary
-  assert fix
+  assert isinstance(response_json, list)
+  assert len(response_json) == len(leaks)
   
-  # Return just the fix part
-  return summary, fix
+  results = []
+  for result in response_json:
+    summary = result["summary"]
+    fix = result["fix"]
+    assert summary
+    assert fix
+    results.append((summary, fix))
+  
+  return results
 
 
 # Clang-tidy runner
@@ -226,9 +251,11 @@ def main():
   leaks = extract_leaks(clang_output, ast_output)
 
   logging.info(f"Leaks: {len(leaks)}")
+  
+  summaries_and_fixes = summarize_all_leaks_with_llm(leaks) if leaks else []
+  
   diagnostics = []
-  for leak in leaks:
-    summary, fix = summarize_leak_with_llm(leak)
+  for leak, (summary, fix) in zip(leaks, summaries_and_fixes):
     diagnostics.append({
       "filename": leak["filename"],
       "line": leak["lnum"],
