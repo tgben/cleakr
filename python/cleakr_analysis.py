@@ -252,6 +252,12 @@ def main():
 
   logging.info(f"Leaks: {len(leaks)}")
   
+  # Output loading state for immediate UI feedback
+  if leaks:
+    loading_data = [{"line": leak["lnum"]} for leak in leaks]
+    print(f"LOADING: {json.dumps(loading_data)}")
+    sys.stdout.flush()
+  
   summaries_and_fixes = summarize_all_leaks_with_llm(leaks) if leaks else []
   
   diagnostics = []
@@ -265,8 +271,9 @@ def main():
     })
   logging.info(f"Diagnostics: {json.dumps(diagnostics, indent=2)}")
 
-  # Send diagnostics back to neovim by printing to stdout
-  print(json.dumps(diagnostics))
+  # Send final diagnostics back to neovim
+  print(f"FINAL: {json.dumps(diagnostics)}")
+  sys.stdout.flush()
 
 if __name__ == "__main__":
   main()

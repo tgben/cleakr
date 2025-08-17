@@ -17,20 +17,35 @@ local function clear_diagnostics(bufnr)
   vim.api.nvim_buf_clear_namespace(bufnr, NAMESPACE, 0, -1)
 end
 
--- Display virtual text and store leak data in buffer
-local function show_virtual_text(bufnr, diagnostics)
+--- Show loading ellipses on detected leak lines
+---@param bufnr number Buffer number
+---@param loading_data table[] Array of {line: number} objects
+local function show_loading_markers(bufnr, loading_data)
+  clear_diagnostics(bufnr)
+
+  for _, item in ipairs(loading_data) do
+    vim.api.nvim_buf_set_extmark(bufnr, NAMESPACE, item.line, 0, {
+      virt_text = { { "...", "Comment" } },
+      virt_text_pos = "eol",
+    })
+  end
+end
+
+--- Display final diagnostics and store leak data in buffer
+---@param bufnr number Buffer number
+---@param diagnostics table[] Diagnostic data
+local function show_final_diagnostics(bufnr, diagnostics)
   clear_diagnostics(bufnr)
   vim.api.nvim_buf_set_var(bufnr, "cleakr_leak_data", diagnostics)
 
   for _, diag in ipairs(diagnostics) do
     local text = diag.fix or ""
-    vim.api.nvim_buf_set_virtual_text(
-      bufnr,
-      NAMESPACE,
-      diag.line,
-      { { text, "WarningMsg" } },
-      {}
-    )
+    if text ~= "" then
+      vim.api.nvim_buf_set_extmark(bufnr, NAMESPACE, diag.line, 0, {
+        virt_text = { { text, "WarningMsg" } },
+        virt_text_pos = "eol",
+      })
+    end
   end
 end
 
@@ -87,6 +102,35 @@ local function create_window_config()
   }
 end
 
+--- Parse streaming output from analysis script
+---@param line string Output line to parse
+---@param bufnr number Buffer number
+local function process_output_line(line, bufnr)
+  -- Handle loading state
+  local loading_match = line:match("^LOADING: (.+)$")
+  if loading_match then
+    local ok, loading_data = pcall(vim.fn.json_decode, loading_match)
+    if ok and loading_data and type(loading_data) == "table" then
+      show_loading_markers(bufnr, loading_data)
+    else
+      vim.notify("Failed to parse loading data", vim.log.levels.WARN)
+    end
+    return
+  end
+
+  -- Handle final results
+  local final_match = line:match("^FINAL: (.+)$")
+  if final_match then
+    local ok, diagnostics = pcall(vim.fn.json_decode, final_match)
+    if ok and diagnostics and type(diagnostics) == "table" then
+      show_final_diagnostics(bufnr, diagnostics)
+    else
+      vim.notify("Failed to parse final diagnostics", vim.log.levels.WARN)
+    end
+    return
+  end
+end
+
 -- Handle analysis completion
 local function handle_analysis_result(code, stdout, stderr, bufnr)
   if code ~= 0 then
@@ -100,27 +144,70 @@ local function handle_analysis_result(code, stdout, stderr, bufnr)
   end
 
   vim.schedule(function()
-    local ok, diagnostics = pcall(vim.fn.json_decode, stdout)
-    if not ok then
-      vim.notify("cleakr: failed to decode JSON from analysis script output", vim.log.levels.ERROR)
-      vim.notify("Raw output: " .. stdout, vim.log.levels.ERROR)
-      return
+    -- Process each line of output for LOADING/FINAL messages
+    for line in stdout:gmatch("[^\r\n]+") do
+      process_output_line(line, bufnr)
     end
-    show_virtual_text(bufnr, diagnostics)
   end)
 end
 
--- Set up pipe reading
-local function setup_pipe_reader(pipe, output_var, error_prefix)
+--- Extract complete lines from streaming data
+---@param data string Raw streaming data
+---@return string[] lines Complete lines
+---@return string remaining Remaining partial data
+local function extract_lines(data)
+  local lines = {}
+  local remaining = data
+
+  while true do
+    local newline_pos = remaining:find("\n")
+    if not newline_pos then
+      break
+    end
+
+    local line = remaining:sub(1, newline_pos - 1)
+    if line ~= "" then
+      table.insert(lines, line)
+    end
+    remaining = remaining:sub(newline_pos + 1)
+  end
+
+  return lines, remaining
+end
+
+--- Set up pipe reader with real-time line processing
+---@param pipe userdata Pipe handle
+---@param output_var table Output accumulator
+---@param error_prefix string Error message prefix
+---@param bufnr? number Buffer number (only for stdout)
+local function setup_pipe_reader(pipe, output_var, error_prefix, bufnr)
   pipe:read_start(function(err, data)
     if err then
       vim.schedule(function()
-        vim.notify(string.format("cleakr: error reading %s: %s", error_prefix, err), vim.log.levels.ERROR)
+        vim.notify(
+          string.format("cleakr: error reading %s: %s", error_prefix, err),
+          vim.log.levels.ERROR
+        )
       end)
       return
     end
-    if data then
-      output_var[1] = output_var[1] .. data
+
+    if not data then
+      return
+    end
+
+    output_var[1] = output_var[1] .. data
+
+    -- Process stdout lines in real-time
+    if error_prefix == "stdout" and bufnr then
+      local lines, remaining = extract_lines(output_var[1])
+      output_var[1] = remaining
+
+      for _, line in ipairs(lines) do
+        vim.schedule(function()
+          process_output_line(line, bufnr)
+        end)
+      end
     end
   end)
 end
@@ -144,7 +231,7 @@ function M.run_analysis(file_path, bufnr)
     handle_analysis_result(code, stdout[1], stderr[1], bufnr)
   end)
 
-  setup_pipe_reader(stdout_pipe, stdout, "stdout")
+  setup_pipe_reader(stdout_pipe, stdout, "stdout", bufnr)
   setup_pipe_reader(stderr_pipe, stderr, "stderr")
 end
 
