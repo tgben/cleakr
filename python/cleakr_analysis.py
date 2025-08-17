@@ -147,24 +147,23 @@ def summarize_leak_with_llm(leak):
   temperature = 0.3
   logging.info(prompt)
 
-  try:
-    response = client.chat.completions.create(
-      model=model,
-      messages=messages,
-      max_tokens=max_tokens,
-      temperature=temperature
-    )
-    response = response.choices[0].message.content.strip()
-    response_json = json.loads(response)
+  response = client.chat.completions.create(
+    model=model,
+    messages=messages,
+    max_tokens=max_tokens,
+    temperature=temperature
+  )
+  response = response.choices[0].message.content.strip()
+  response_json = json.loads(response)
 
-    summary = response_json["summary"]
-    fix = response_json["fix"]
+  summary = response_json["summary"]
+  fix = response_json["fix"]
 
-    assert summary
-    assert fix
-    
-    # Return just the fix part
-    return fix
+  assert summary
+  assert fix
+  
+  # Return just the fix part
+  return fix
     
   except Exception:
     logging.exception("OpenAI API call failed")
