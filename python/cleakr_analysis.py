@@ -31,8 +31,46 @@ def extract_var_name(raw_message):
     return var_name
   return "unknown"
 
+# Extracts AST context for a variable at a specific line
+def extract_ast_context(ast_output, line_num, var_name):
+  if not ast_output:
+    return "No AST context"
+  
+  lines = ast_output.splitlines()
+  context_info = []
+  line_target = f"line:{line_num}"
+  allocation_funcs = ["malloc", "calloc", "free"]
+  
+  def is_function_decl(line):
+    return "FunctionDecl" in line and "'" in line
+    
+  def is_var_decl(line):
+    return "VarDecl" in line and var_name in line and "'" in line
+    
+  def is_allocation_call(line):
+    return "CallExpr" in line and any(func in line for func in allocation_funcs)
+  
+  for line in lines:
+    if line_target not in line:
+      continue
+      
+    if is_function_decl(line):
+      func_name = line.split("'")[1]
+      context_info.append(f"function: {func_name}")
+    
+    elif is_var_decl(line):
+      parts = line.split("'")
+      if len(parts) > 2:
+        var_type = parts[-2]
+        context_info.append(f"type: {var_type}")
+    
+    elif is_allocation_call(line):
+      context_info.append("allocation call found")
+  
+  return "; ".join(context_info) if context_info else "Basic AST info available"
+
 # Extracts leaks from clang output, groups related notes for a single warning
-def extract_leaks(clang_output):
+def extract_leaks(clang_output, ast_output):
     lines = clang_output.splitlines()
     leaks = []
     current_block = []
@@ -48,12 +86,15 @@ def extract_leaks(clang_output):
         return
       file, line_num, col_num = current_location
       combined_msg = "\n".join(current_block)
+      var_name = extract_var_name(combined_msg)
+      ast_context = extract_ast_context(ast_output, line_num, var_name)
       leak_entry = {
         "filename": file,
         "lnum": line_num - 1,  # zero-based
         "col": col_num - 1,
         "raw_message": combined_msg,
-        "var_name": extract_var_name(combined_msg),
+        "var_name": var_name,
+        "ast_context": ast_context,
       }
       leaks.append(leak_entry)
     
@@ -88,6 +129,7 @@ def summarize_leak_with_llm(leak):
     "You are a helpful assistant that summarizes C memory leak warnings and gives recommendations on how to update the code to fix the memory leaks.\n"
     f"Variable involved: {leak['var_name']}\n"
     f"Warning details:\n{leak['raw_message']}\n"
+    f"AST context: {leak.get('ast_context', 'No AST context')}\n"
     "Provide a concise summary and recommendation on how to fix the leak (max 60 chars) including variable name, severity, and leak category. Respond in plain text (no markdown formatting)."
   )
   model = "gpt-4o-mini"
@@ -98,6 +140,7 @@ def summarize_leak_with_llm(leak):
   ]
   max_tokens = 40
   temperature = 0.3
+  logging.info(prompt)
 
   try:
     response = client.chat.completions.create(
@@ -122,7 +165,7 @@ def run_clang_tidy(file_path):
     clang_tidy_path,
     file_path,
     "--",
-    "-std=c11",  # Adjust compile flags as needed
+    "-std=c11",
   ]
   try:
     result = subprocess.run(
@@ -136,6 +179,31 @@ def run_clang_tidy(file_path):
     logging.error(f"Failed to run clang-tidy.")
     return ""
 
+# Clang AST dump runner
+def run_clang_ast(file_path):
+  clang_path = shutil.which("clang")
+  assert clang_path
+
+  cmd = [
+    clang_path,
+    "-Xclang",
+    "-ast-dump",
+    "-fsyntax-only",
+    file_path,
+    "-std=c11",
+  ]
+  try:
+    result = subprocess.run(
+      cmd,
+      capture_output=True,
+      text=True,
+      check=False
+    )
+    return result.stdout
+  except Exception:
+    logging.error(f"Failed to run clang ast-dump.")
+    return ""
+
 def main():
   assert len(sys.argv) == 2
 
@@ -144,7 +212,8 @@ def main():
 
   clang_output = run_clang_tidy(file_path)
   logging.info(f"clang output:\n{clang_output.strip()}")
-  leaks = extract_leaks(clang_output)
+  ast_output = run_clang_ast(file_path)
+  leaks = extract_leaks(clang_output, ast_output)
 
   logging.info(f"Leaks: {len(leaks)}")
   diagnostics = []
