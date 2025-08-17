@@ -10,11 +10,10 @@ import shutil  # for which()
 log_path = "cleakr.log"
 logging.basicConfig(
     filename=log_path,
-    level=logging.DEBUG,
+    level=logging.INFO,
     format="%(asctime)s %(levelname)s: %(message)s",
     force=True,
 )
-logging.info("cleakr_analysis.py starting up")
 
 # Optional OpenAI client setup
 try:
@@ -23,13 +22,13 @@ try:
     api_key = os.getenv("OPENAI_API_KEY")
     if api_key:
         client = OpenAI(api_key=api_key)
-        logging.debug("OpenAI client initialized")
+        logging.info("OpenAI client initialized")
     else:
         client = None
-        logging.warning("OPENAI_API_KEY not set")
+        logging.info("OPENAI_API_KEY not set")
 except ImportError:
     client = None
-    logging.warning("OpenAI module not installed")
+    logging.info("OpenAI module not installed")
 
 
 # Helper to extract variable name from combined message block
@@ -37,9 +36,7 @@ def extract_var_name(raw_message):
   match = re.search(r"'([^']+)'", raw_message)
   if match:
     var_name = match.group(1)
-    logging.debug(f"Extracted variable name: {var_name}")
     return var_name
-  logging.debug("Variable name not found, returning 'unknown'")
   return "unknown"
 
 
@@ -99,14 +96,12 @@ def extract_leaks(clang_output):
       "var_name": var_name,
     })
 
-  logging.debug(f"Extracted leaks: {json.dumps(leaks, indent=2)}")
   return leaks
 
 
 # LLM summarizer
 def summarize_leak_with_llm(leak):
   if client is None:
-    logging.warning("OpenAI client not available, skipping LLM summary")
     return leak["raw_message"][:80]
 
   prompt = (
@@ -133,7 +128,6 @@ def summarize_leak_with_llm(leak):
 # Clang-tidy runner
 def run_clang_tidy(file_path):
   clang_tidy_path = shutil.which("clang-tidy")
-  logging.debug(f"Using clang-tidy binary at: {clang_tidy_path}")
 
   if not clang_tidy_path:
     logging.error("clang-tidy not found in PATH")
@@ -145,14 +139,16 @@ def run_clang_tidy(file_path):
     "--",
     "-std=c11",  # Adjust compile flags as needed
   ]
-  logging.debug(f"Running command: {' '.join(cmd)}")
   try:
     result = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    logging.debug(f"clang-tidy stdout:\n{result.stdout.strip()}")
-    logging.debug(f"clang-tidy stderr:\n{result.stderr.strip()}")
+    if result.returncode == 0:
+      logging.info("clang-tidy completed successfully")
+    else:
+      logging.info(f"clang-tidy completed with return code {result.returncode}")
+    logging.info(f"Raw clang-tidy output:\n{result.stdout.strip()}")
     return result.stdout
   except Exception:
-    logging.exception("Failed to run clang-tidy")
+    logging.error("Failed to run clang-tidy")
     return ""
 
 
@@ -168,12 +164,13 @@ def main():
 
   clang_output = run_clang_tidy(file_path)
   leaks = extract_leaks(clang_output)
-  logging.debug(f"Raw clang-tidy output:\n{clang_output}")
 
   if not leaks:
     logging.info("No leaks found")
     print("[]")
     return
+  else:
+    logging.info(f"Found {len(leaks)} potential memory leaks")
 
   diagnostics = []
   for leak in leaks:
