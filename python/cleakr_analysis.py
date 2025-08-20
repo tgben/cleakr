@@ -5,6 +5,8 @@ import json
 import subprocess
 import logging
 import shutil
+from time import time
+from functools import wraps
 from typing import NoReturn, TYPE_CHECKING
 
 def fail(msg: str) -> NoReturn:
@@ -18,6 +20,16 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s: %(message)s",
     force=True,
 )
+
+def timeit(func):
+  @wraps(func)
+  def wrap(*args, **kw):
+    start = time()
+    res = func(*args, **kw)
+    end = time()
+    logging.info(f"TIMING: {func.__name__} => {(end - start):.2f} seconds")
+    return res
+  return wrap
 
 # OpenAI client setup
 from openai import OpenAI
@@ -146,6 +158,7 @@ def extract_leaks(clang_output, ast_output):
     return leaks
 
 # Batch LLM summarizer for all leaks
+@timeit
 def summarize_all_leaks_with_llm(leaks):
   if not leaks:
     return []
@@ -258,7 +271,8 @@ def run_clang_ast(file_path):
     logging.error(f"Failed to run clang ast-dump.")
     return ""
 
-def main():
+@timeit
+def main() -> None:
   if len(sys.argv) != 2:
     fail(f"Incorrect number of args. Are you running this directly? Expects a path to a .c file.")
 
