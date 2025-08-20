@@ -5,6 +5,10 @@ import json
 import subprocess
 import logging
 import shutil
+from typing import NoReturn, TYPE_CHECKING
+
+def fail(msg: str) -> NoReturn:
+  sys.exit(msg)
 
 # Logging setup
 log_path = "log/cleakr.log"
@@ -18,9 +22,11 @@ logging.basicConfig(
 # OpenAI client setup
 from openai import OpenAI
 api_key = os.getenv("OPENAI_API_KEY")
-assert api_key
+if not api_key:
+  fail(f"OPENAI_API_KEY not found")
 client = OpenAI(api_key=api_key)
-assert client
+if not client:
+  fail(f"Failed to initialize OpenAI client")
 logging.info("OpenAI client initialized")
 
 # Extracts variable name from combined message block
@@ -186,15 +192,17 @@ def summarize_all_leaks_with_llm(leaks):
   response = response.choices[0].message.content.strip()
   response_json = json.loads(response)
 
-  assert isinstance(response_json, list)
-  assert len(response_json) == len(leaks)
+  if len(response_json) != len(leaks):
+    fail(f"Response len is not the same length as the number of leaks. {response_json}")
   
   results = []
   for result in response_json:
     summary = result["summary"]
     fix = result["fix"]
-    assert summary
-    assert fix
+    if not summary:
+      fail(f"LLM did not return a valid summary. {result}")
+    if not fix:
+      fail(f"LLM did not return a valid fix. {result}")
     results.append((summary, fix))
   
   return results
@@ -203,7 +211,8 @@ def summarize_all_leaks_with_llm(leaks):
 # Clang-tidy runner
 def run_clang_tidy(file_path):
   clang_tidy_path = shutil.which("clang-tidy")
-  assert clang_tidy_path
+  if not clang_tidy_path:
+    fail(f"clang-tidy not found.")
 
   cmd = [
     clang_tidy_path,
@@ -226,7 +235,8 @@ def run_clang_tidy(file_path):
 # Clang AST dump runner
 def run_clang_ast(file_path):
   clang_path = shutil.which("clang")
-  assert clang_path
+  if not clang_path:
+    fail(f"clang not found.")
 
   cmd = [
     clang_path,
@@ -249,7 +259,8 @@ def run_clang_ast(file_path):
     return ""
 
 def main():
-  assert len(sys.argv) == 2
+  if len(sys.argv) != 2:
+    fail(f"Incorrect number of args. Are you running this directly? Expects a path to a .c file.")
 
   file_path = sys.argv[1]
   logging.info(f"Analyzing file: {file_path}")
